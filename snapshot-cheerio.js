@@ -17,6 +17,123 @@ if (!fs.existsSync(newsDir)) {
 }
 
 /**
+ * Generate markdown content for a single website's news data
+ * @param {Object} newsData - News data object
+ * @returns {string} - Markdown formatted content
+ */
+function generateMarkdown(newsData) {
+    const { url, scrapedAt, totalArticles, articles } = newsData;
+    const domain = new URL(url).hostname;
+    const date = new Date(scrapedAt).toLocaleString();
+    
+    let markdown = `# News Report: ${domain}\n\n`;
+    markdown += `**Source:** ${url}\n`;
+    markdown += `**Scraped At:** ${date}\n`;
+    markdown += `**Total Articles:** ${totalArticles}\n\n`;
+    markdown += `---\n\n`;
+    
+    if (articles.length === 0) {
+        markdown += `No articles found.\n`;
+        return markdown;
+    }
+    
+    articles.forEach((article, index) => {
+        markdown += `## ${index + 1}. ${article.title}\n\n`;
+        
+        if (article.link) {
+            markdown += `**Link:** [Read Full Article](${article.link})\n\n`;
+        }
+        
+        if (article.summary && article.summary.trim()) {
+            markdown += `**Summary:** ${article.summary}\n\n`;
+        }
+        
+        if (article.image) {
+            markdown += `**Image:** ![Article Image](${article.image})\n\n`;
+        }
+        
+        markdown += `**Scraped:** ${new Date(article.scrapedAt).toLocaleString()}\n\n`;
+        markdown += `---\n\n`;
+    });
+    
+    return markdown;
+}
+
+/**
+ * Generate markdown content for multiple websites' news data
+ * @param {Object} results - Combined results object
+ * @returns {string} - Markdown formatted content
+ */
+function generateMultipleSitesMarkdown(results) {
+    const { totalWebsites, scrapedAt, websites, allArticles } = results;
+    const date = new Date(scrapedAt).toLocaleString();
+    
+    let markdown = `# Multi-Site News Report\n\n`;
+    markdown += `**Scraped At:** ${date}\n`;
+    markdown += `**Total Websites:** ${totalWebsites}\n`;
+    markdown += `**Total Articles:** ${allArticles.length}\n\n`;
+    markdown += `---\n\n`;
+    
+    // Summary table
+    markdown += `## Summary\n\n`;
+    markdown += `| Website | Status | Articles |\n`;
+    markdown += `|---------|--------|----------|\n`;
+    
+    websites.forEach(site => {
+        const status = site.error ? '❌ Failed' : '✅ Success';
+        const articleCount = site.articlesFound || site.articleCount || 0;
+        const siteName = site.name || site.domain || new URL(site.url).hostname;
+        markdown += `| ${siteName} | ${status} | ${articleCount} |\n`;
+    });
+    
+    markdown += `\n---\n\n`;
+    
+    // Detailed articles by website
+    websites.forEach(site => {
+        const siteName = site.name || site.domain || new URL(site.url).hostname;
+        markdown += `## ${siteName}\n\n`;
+        markdown += `**URL:** ${site.url}\n`;
+        
+        if (site.error) {
+            markdown += `**Status:** ❌ Failed\n`;
+            markdown += `**Error:** ${site.error}\n\n`;
+            markdown += `---\n\n`;
+            return;
+        }
+        
+        markdown += `**Status:** ✅ Success\n`;
+        const articleCount = site.articlesFound || site.articleCount || 0;
+        markdown += `**Articles Found:** ${articleCount}\n\n`;
+        
+        if (!site.articles || site.articles.length === 0) {
+            markdown += `No articles found.\n\n`;
+        } else {
+            site.articles.forEach((article, index) => {
+                markdown += `### ${index + 1}. ${article.title}\n\n`;
+                
+                if (article.link) {
+                    markdown += `**Link:** [Read Full Article](${article.link})\n\n`;
+                }
+                
+                if (article.summary && article.summary.trim()) {
+                    markdown += `**Summary:** ${article.summary}\n\n`;
+                }
+                
+                if (article.image) {
+                    markdown += `**Image:** ![Article Image](${article.image})\n\n`;
+                }
+                
+                markdown += `**Scraped:** ${new Date(article.scrapedAt).toLocaleString()}\n\n`;
+            });
+        }
+        
+        markdown += `---\n\n`;
+    });
+    
+    return markdown;
+}
+
+/**
  * Create HTTP client with proper headers to avoid bot detection
  */
 function createHttpClient() {
@@ -238,8 +355,6 @@ async function scrapeTopNews(url, options = {}) {
         if (saveToFile) {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const domain = new URL(url).hostname.replace(/[^a-zA-Z0-9]/g, '_');
-            const newsFilename = filename || `news_${domain}_${timestamp}.json`;
-            const newsPath = path.join(newsDir, newsFilename);
             
             const newsData = {
                 url: url,
@@ -248,8 +363,18 @@ async function scrapeTopNews(url, options = {}) {
                 articles: finalArticles
             };
             
+            // Save JSON file
+            const newsFilename = filename || `news_${domain}_${timestamp}.json`;
+            const newsPath = path.join(newsDir, newsFilename);
             fs.writeFileSync(newsPath, JSON.stringify(newsData, null, 2));
             console.log(`News data saved: ${newsPath}`);
+            
+            // Save Markdown file
+            const markdownFilename = filename ? filename.replace('.json', '.md') : `news_${domain}_${timestamp}.md`;
+            const markdownPath = path.join(newsDir, markdownFilename);
+            const markdownContent = generateMarkdown(newsData);
+            fs.writeFileSync(markdownPath, markdownContent);
+            console.log(`Markdown report saved: ${markdownPath}`);
         }
         
         return finalArticles;
@@ -422,11 +547,19 @@ if (require.main === module) {
                 
                 // Save full results to file
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                
+                // Save JSON file
                 const filename = `news_multiple_sites_${timestamp}.json`;
                 const filepath = path.join(newsDir, filename);
                 fs.writeFileSync(filepath, JSON.stringify(results, null, 2));
-                
                 console.log(`\nFull results saved to: ${filepath}`);
+                
+                // Save Markdown file
+                const markdownFilename = `news_multiple_sites_${timestamp}.md`;
+                const markdownPath = path.join(newsDir, markdownFilename);
+                const markdownContent = generateMultipleSitesMarkdown(results);
+                fs.writeFileSync(markdownPath, markdownContent);
+                console.log(`Combined markdown report saved: ${markdownPath}`);
                 
             } else if (urls.length === 1) {
                 // Single URL scraping
@@ -478,11 +611,19 @@ if (require.main === module) {
                 
                 // Save full results to file
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                
+                // Save JSON file
                 const filename = `news_multiple_sites_${timestamp}.json`;
                 const filepath = path.join(newsDir, filename);
                 fs.writeFileSync(filepath, JSON.stringify(results, null, 2));
-                
                 console.log(`\nFull results saved to: ${filepath}`);
+                
+                // Save Markdown file
+                const markdownFilename = `news_multiple_sites_${timestamp}.md`;
+                const markdownPath = path.join(newsDir, markdownFilename);
+                const markdownContent = generateMultipleSitesMarkdown(results);
+                fs.writeFileSync(markdownPath, markdownContent);
+                console.log(`Combined markdown report saved: ${markdownPath}`);
             }
             
         } catch (error) {
