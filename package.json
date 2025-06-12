@@ -1,0 +1,22 @@
+{
+  "name": "website-snapshot",
+  "version": "1.0.0",
+  "description": "A tool to take screenshots of websites using Puppeteer",
+  "main": "snapshot.js",
+  "scripts": {
+    "start": "node snapshot.js",
+    "snapshot": "node snapshot.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "puppeteer": "^24.10.0"
+  },
+  "keywords": [
+    "puppeteer",
+    "screenshot",
+    "automation"
+  ],
+  "author": "",
+  "license": "MIT"
+}
