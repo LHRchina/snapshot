@@ -58,6 +58,116 @@ function generateMarkdown(newsData) {
 }
 
 /**
+ * Generate text content for single website's news data
+ * @param {Object} newsData - News data object
+ * @returns {string} - Text formatted content
+ */
+function generateText(newsData) {
+    const { url, scrapedAt, totalArticles, articles } = newsData;
+    const domain = new URL(url).hostname;
+    const date = new Date(scrapedAt).toLocaleString();
+    
+    let text = `NEWS REPORT: ${domain.toUpperCase()}\n`;
+    text += `${'='.repeat(50)}\n\n`;
+    text += `Source: ${url}\n`;
+    text += `Scraped At: ${date}\n`;
+    text += `Total Articles: ${totalArticles}\n\n`;
+    text += `${'='.repeat(50)}\n\n`;
+    
+    if (articles.length === 0) {
+        text += `No articles found.\n`;
+        return text;
+    }
+    
+    articles.forEach((article, index) => {
+        text += `${index + 1}. ${article.title}\n`;
+        text += `${'-'.repeat(article.title.length + 3)}\n\n`;
+        
+        if (article.link) {
+            text += `Link: ${article.link}\n\n`;
+        }
+        
+        if (article.summary && article.summary.trim()) {
+            text += `Summary: ${article.summary}\n\n`;
+        }
+        
+        if (article.image) {
+            text += `Image: ${article.image}\n\n`;
+        }
+        
+        text += `Scraped: ${new Date(article.scrapedAt).toLocaleString()}\n\n`;
+        text += `${'='.repeat(50)}\n\n`;
+    });
+    
+    return text;
+}
+
+/**
+ * Generate text content for multiple websites' news data
+ * @param {Object} results - Combined results object
+ * @returns {string} - Text formatted content
+ */
+function generateMultipleSitesText(results) {
+    const { totalWebsites, scrapedAt, websites, allArticles } = results;
+    const date = new Date(scrapedAt).toLocaleString();
+    
+    let text = `MULTI-SITE NEWS REPORT\n`;
+    text += `${'='.repeat(50)}\n\n`;
+    text += `Scraped At: ${date}\n`;
+    text += `Total Websites: ${totalWebsites}\n`;
+    text += `Total Articles: ${allArticles.length}\n\n`;
+    text += `${'='.repeat(50)}\n\n`;
+    
+    // Summary section
+    text += `SUMMARY\n`;
+    text += `${'='.repeat(50)}\n\n`;
+    
+    websites.forEach(site => {
+        const status = site.success ? 'SUCCESS' : 'FAILED';
+        text += `${site.domain}: ${status} (${site.articleCount} articles)\n`;
+    });
+    
+    text += `\n${'='.repeat(50)}\n\n`;
+    
+    // Detailed results for each website
+    websites.forEach((site, siteIndex) => {
+        text += `WEBSITE ${siteIndex + 1}: ${site.domain.toUpperCase()}\n`;
+        text += `${'-'.repeat(50)}\n\n`;
+        text += `URL: ${site.url}\n`;
+        text += `Status: ${site.success ? 'SUCCESS' : 'FAILED'}\n`;
+        text += `Articles Found: ${site.articleCount}\n\n`;
+        
+        if (!site.success) {
+            text += `Error: ${site.error}\n\n`;
+        } else if (site.articles.length > 0) {
+            site.articles.forEach((article, index) => {
+                text += `  ${index + 1}. ${article.title}\n`;
+                
+                if (article.link) {
+                    text += `     Link: ${article.link}\n`;
+                }
+                
+                if (article.summary && article.summary.trim()) {
+                    text += `     Summary: ${article.summary}\n`;
+                }
+                
+                if (article.image) {
+                    text += `     Image: ${article.image}\n`;
+                }
+                
+                text += `     Scraped: ${new Date(article.scrapedAt).toLocaleString()}\n\n`;
+            });
+        } else {
+            text += `  No articles found.\n\n`;
+        }
+        
+        text += `${'='.repeat(50)}\n\n`;
+    });
+    
+    return text;
+}
+
+/**
  * Generate markdown content for multiple websites' news data
  * @param {Object} results - Combined results object
  * @returns {string} - Markdown formatted content
@@ -572,6 +682,13 @@ async function scrapeTopNews(url, options = {}) {
             const markdownContent = generateMarkdown(newsData);
             fs.writeFileSync(markdownPath, markdownContent);
             console.log(`Markdown report saved: ${markdownPath}`);
+            
+            // Save Text file
+            const textFilename = filename ? filename.replace('.json', '.txt') : `news_${domain}_${timestamp}.txt`;
+            const textPath = path.join(newsDir, textFilename);
+            const textContent = generateText(newsData);
+            fs.writeFileSync(textPath, textContent);
+            console.log(`Text report saved: ${textPath}`);
         }
         
         return newsArticles;
@@ -661,6 +778,13 @@ async function scrapeMultipleNews(options = {}) {
         const markdownContent = generateMultipleSitesMarkdown(results);
         fs.writeFileSync(markdownPath, markdownContent);
         console.log(`Combined markdown report saved: ${markdownPath}`);
+        
+        // Save Text file
+        const textFilename = options.filename ? options.filename.replace('.json', '.txt') : `news_multiple_sites_${timestamp}.txt`;
+        const textPath = path.join(newsDir, textFilename);
+        const textContent = generateMultipleSitesText(results);
+        fs.writeFileSync(textPath, textContent);
+        console.log(`Combined text report saved: ${textPath}`);
     }
 
     return results;

@@ -60,6 +60,76 @@ function generateMarkdown(newsData) {
 }
 
 /**
+ * Generate text content for single website's news data
+ * @param {Object} newsData - News data object
+ * @returns {string} - Text formatted content
+ */
+function generateText(newsData) {
+    const { url, scrapedAt, totalArticles, articles } = newsData;
+    const domain = url ? new URL(url).hostname : 'Unknown';
+    const date = new Date(scrapedAt).toLocaleString();
+    
+    let text = `NEWS REPORT: ${domain.toUpperCase()}\n`;
+    text += `Scraped At: ${date}\n\n`;
+    
+    if (articles.length === 0) {
+        text += `No articles found.\n`;
+        return text;
+    }
+    
+    articles.forEach((article, index) => {
+        text += `${index + 1}. ${article.title}\n`;
+        if (article.summary && article.summary.trim()) {
+            text += `   Summary: ${article.summary}\n`;
+        }
+        if (article.link) {
+            text += `   URL: ${article.link}\n`;
+        }
+        text += `   Time: ${new Date(article.scrapedAt).toLocaleString()}\n\n`;
+    });
+    
+    return text;
+}
+
+/**
+ * Generate text content for multiple websites' news data
+ * @param {Object} results - Combined results object
+ * @returns {string} - Text formatted content
+ */
+function generateMultipleSitesText(results) {
+    const { totalWebsites, scrapedAt, websites, allArticles } = results;
+    const date = new Date(scrapedAt).toLocaleString();
+    
+    let text = `MULTI-SITE NEWS REPORT\n`;
+    text += `Scraped At: ${date}\n\n`;
+    
+    // Articles from all websites with just title and time
+    websites.forEach((site, siteIndex) => {
+        const domain = site.domain || (site.url ? new URL(site.url).hostname : 'Unknown');
+        text += `WEBSITE: ${domain.toUpperCase()}\n\n`;
+        
+        if (!site.success) {
+            text += `  Error: Could not retrieve articles\n\n`;
+        } else if (site.articles.length > 0) {
+            site.articles.forEach((article, index) => {
+                text += `  ${index + 1}. ${article.title}\n`;
+                if (article.summary && article.summary.trim()) {
+                    text += `     Summary: ${article.summary}\n`;
+                }
+                if (article.link) {
+                    text += `     URL: ${article.link}\n`;
+                }
+                text += `     Time: ${new Date(article.scrapedAt).toLocaleString()}\n\n`;
+            });
+        } else {
+            text += `  No articles found.\n\n`;
+        }
+    });
+    
+    return text;
+}
+
+/**
  * Generate markdown content for multiple websites' news data
  * @param {Object} results - Combined results object
  * @returns {string} - Markdown formatted content
@@ -375,6 +445,13 @@ async function scrapeTopNews(url, options = {}) {
             const markdownContent = generateMarkdown(newsData);
             fs.writeFileSync(markdownPath, markdownContent);
             console.log(`Markdown report saved: ${markdownPath}`);
+            
+            // Save Text file
+            const textFilename = filename ? filename.replace('.json', '.txt') : `news_${domain}_${timestamp}.txt`;
+            const textPath = path.join(newsDir, textFilename);
+            const textContent = generateText(newsData);
+            fs.writeFileSync(textPath, textContent);
+            console.log(`Text report saved: ${textPath}`);
         }
         
         return finalArticles;
@@ -560,6 +637,13 @@ if (require.main === module) {
                 const markdownContent = generateMultipleSitesMarkdown(results);
                 fs.writeFileSync(markdownPath, markdownContent);
                 console.log(`Combined markdown report saved: ${markdownPath}`);
+                
+                // Save Text file
+                const textFilename = `news_multiple_sites_${timestamp}.txt`;
+                const textPath = path.join(newsDir, textFilename);
+                const textContent = generateMultipleSitesText(results);
+                fs.writeFileSync(textPath, textContent);
+                console.log(`Combined text report saved: ${textPath}`);
                 
             } else if (urls.length === 1) {
                 // Single URL scraping
