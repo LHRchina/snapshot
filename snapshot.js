@@ -1,5 +1,4 @@
-const express = require('express');
-const cors = require('cors');
+// Express and CORS removed - CLI only version
 const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
@@ -7,12 +6,7 @@ const puppeteer = require('puppeteer');
 // Load configuration
 const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Express server removed - CLI only version
 
 // Create news data directory if it doesn't exist
 const newsDir = path.join(__dirname, 'news_data');
@@ -543,83 +537,18 @@ async function scrapeMultipleNews(options = {}) {
     return results;
 }
 
-// API endpoint for scraping news from single URL
-app.post('/scrape-news', async (req, res) => {
-    try {
-        const { url, options = {} } = req.body;
-
-        if (!url) {
-            return res.status(400).json({ error: 'URL is required' });
-        }
-
-        const newsArticles = await scrapeTopNews(url, options);
-
-        res.json({
-            success: true,
-            message: 'News scraped successfully',
-            totalArticles: newsArticles.length,
-            articles: newsArticles,
-            scrapedAt: new Date().toISOString()
-        });
-
-    } catch (error) {
-        console.error('News scraping API error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// API endpoint for scraping news from multiple URLs
-app.post('/scrape-multiple-news', async (req, res) => {
-    try {
-        const { options = {} } = req.body;
-
-        // Check if there are any enabled websites in config
-        const enabledWebsites = config.websites.filter(site => site.enabled);
-        if (enabledWebsites.length === 0) {
-            return res.status(400).json({ error: 'No enabled websites found in configuration' });
-        }
-
-        const results = await scrapeMultipleNews(options);
-
-        res.json({
-            success: true,
-            message: 'Multiple news sites scraped successfully',
-            ...results
-        });
-
-    } catch (error) {
-        console.error('Multiple news scraping API error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// Serve news data files
-app.use('/news-data', express.static(newsDir));
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-    res.json({ status: 'OK', service: 'News Scraping Service' });
-});
+// API endpoints removed - CLI only version
 
 // Command line interface
 if (require.main === module) {
     const args = process.argv.slice(2);
 
     if (args.length === 0) {
-        // Start as web service
-        app.listen(PORT, () => {
-            console.log(`News scraping service running on port ${PORT}`);
-            console.log(`Health check: http://localhost:${PORT}/health`);
-            console.log(`API endpoints:`);
-            console.log(`  - Single site: POST http://localhost:${PORT}/scrape-news`);
-            console.log(`  - Multiple sites: POST http://localhost:${PORT}/scrape-multiple-news`);
-        });
+        // Server functionality removed - CLI only version
+        console.log('Usage:');
+        console.log('  node snapshot.js --config [options]                    # Use websites from config.json');
+        console.log('  node snapshot.js <url1> [url2] [url3] ... [options]   # Use specific URLs');
+        process.exit(1);
     } else {
         // Command line mode
         const options = {};

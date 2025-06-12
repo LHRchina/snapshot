@@ -1,22 +1,25 @@
 {
-  "name": "website-snapshot",
+  "name": "website-snapshot-cli",
   "version": "1.0.0",
-  "description": "A tool to take screenshots of websites using Puppeteer",
+  "description": "A CLI tool to scrape news websites using Puppeteer (no server)",
   "main": "snapshot.js",
   "scripts": {
-    "start": "node snapshot.js",
-    "snapshot": "node snapshot.js"
+    "start": "node snapshot.js --config",
+    "scrape": "node snapshot.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^5.1.0",
-    "puppeteer": "^24.10.0"
+    "puppeteer": "^21.5.2"
   },
   "keywords": [
     "puppeteer",
-    "screenshot",
-    "automation"
+    "web-scraping",
+    "news-scraper",
+    "cli",
+    "no-server"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
 }
