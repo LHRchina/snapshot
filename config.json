@@ -1,0 +1,38 @@
+{
+  "websites": [
+    {
+      "name": "Khaleej Times",
+      "url": "https://www.khaleejtimes.com/",
+      "enabled": true
+    },
+    {
+      "name": "Gulf News",
+      "url": "https://gulfnews.com/",
+      "enabled": true
+    },
+    {
+      "name": "The National News",
+      "url": "https://www.thenationalnews.com/uae/",
+      "enabled": true
+    },
+    {
+      "name": "Timeout Abu Dhabi",
+      "url": "https://www.timeoutabudhabi.com/news/new-uae-visa-free-destination",
+      "enabled": true
+    },
+    {
+      "name": "Emirates 247",
+      "url": "https://www.emirates247.com/",
+      "enabled": true
+    }
+  ],
+  "scraping": {
+    "maxNews": 10,
+    "delayBetweenRequests": 2000,
+    "viewport": {
+      "width": 1920,
+      "height": 1080
+    },
+    "waitTime": 3000
+  }
+}

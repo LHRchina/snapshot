@@ -1,8 +1,11 @@
-const puppeteer = require('puppeteer');
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const puppeteer = require('puppeteer');
+
+// Load configuration
+const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,37 +14,31 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Create screenshots directory if it doesn't exist
-const screenshotsDir = path.join(__dirname, 'screenshots');
-if (!fs.existsSync(screenshotsDir)) {
-    fs.mkdirSync(screenshotsDir, { recursive: true });
+// Create news data directory if it doesn't exist
+const newsDir = path.join(__dirname, 'news_data');
+if (!fs.existsSync(newsDir)) {
+    fs.mkdirSync(newsDir, { recursive: true });
 }
 
 /**
- * Take a screenshot of a webpage
- * @param {string} url - The URL to screenshot
- * @param {Object} options - Screenshot options
- * @returns {Promise<string>} - Path to the screenshot file
+ * Scrape top 10 news from a webpage
+ * @param {string} url - The URL to scrape
+ * @param {Object} options - Scraping options
+ * @returns {Promise<Array>} - Array of news articles
  */
-async function takeScreenshot(url, options = {}) {
+async function scrapeTopNews(url, options = {}) {
     const {
         width = 1920,
-        height = 500,
-        fullPage = true,
-        format = 'png',
-        quality = 90,
-        waitFor = 2,
-        filename = null,
-        skipElement = 'home-page-mast', // CSS selector for element to skip (e.g., 'home-page-mast')
-        startFromPixel = null, // Start screenshot from specific pixel position (e.g., 500)
-        endAtPixel = null, // End screenshot at specific pixel position (e.g., 1500)
-        leftBorder = null, // Left border position in pixels (e.g., 100)
-        rightBorder = null, // Right border position in pixels (e.g., 1800)
+        height = 1080,
+        waitFor = 3000,
+        maxNews = 10,
+        saveToFile = true,
+        filename = null
     } = options;
 
     let browser;
     try {
-        console.log(`Taking screenshot of: ${url}`);
+        console.log(`Scraping top news from: ${url}`);
 
         // Launch browser with optimized settings
         browser = await puppeteer.launch({
@@ -75,9 +72,6 @@ async function takeScreenshot(url, options = {}) {
         if (waitFor > 0) {
             await new Promise(resolve => setTimeout(resolve, waitFor));
         }
-
-        // Skip waiting for lazy-loaded content for faster screenshots
-        // await new Promise(resolve => setTimeout(resolve, 5));
 
         // Handle cookie policies, subscription popups, and other overlays
         await page.evaluate(() => {
@@ -364,100 +358,111 @@ async function takeScreenshot(url, options = {}) {
         // Wait a bit more after handling popups
         await new Promise(resolve => setTimeout(resolve, 500));
 
-        // Handle positioning - either from pixel position or skipping elements
-        if (startFromPixel !== null) {
-            // Scroll to specific pixel position
-            await page.evaluate((pixelPosition) => {
-                console.log(`Scrolling to pixel position: ${pixelPosition}px`);
-                window.scrollTo({
-                    top: pixelPosition,
-                    behavior: 'smooth'
-                });
-            }, startFromPixel);
-
-            // Wait for scroll to complete
-            await new Promise(resolve => setTimeout(resolve, 300));
-        } else if (skipElement) {
-            // Handle skipping specific elements (e.g., header/masthead)
-            await page.evaluate((selector) => {
-                // First try to find R-SNG class element
-                let element = document.querySelector('.R-SNG');
-
-                // If R-SNG not found, fall back to original selector logic
-                if (!element) {
-                    element = document.querySelector(selector) ||
-                             document.querySelector(`#${selector}`) ||
-                             document.querySelector(`.${selector}`);
-                }
-
-                if (element) {
-                    console.log(`Found element to skip: ${element.className || selector}`);
-                    const rect = element.getBoundingClientRect();
-                    const scrollY = rect.bottom + window.scrollY; // Position directly under the R-SNG element
-
-                    // Scroll to position directly under the R-SNG element
-                    window.scrollTo({
-                        top: scrollY,
-                        behavior: 'smooth'
-                    });
-
-                    console.log(`Scrolled to position under element: ${element.className || selector}, scrolled to: ${scrollY}px`);
-                } else {
-                    console.log(`Element not found: ${selector}`);
-                }
-            }, skipElement);
-
-            // Wait for scroll to complete
-            await new Promise(resolve => setTimeout(resolve, 300));
-        }
-
-        // Generate filename
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const domain = new URL(url).hostname.replace(/[^a-zA-Z0-9]/g, '_');
-        const screenshotFilename = filename || `screenshot_${domain}_${timestamp}.${format}`;
-        const screenshotPath = path.join(screenshotsDir, screenshotFilename);
-
-        // Take screenshot
-        const screenshotOptions = {
-            path: screenshotPath,
-            type: format
-        };
-
-        // Handle pixel-based clipping
-        if (startFromPixel !== null || endAtPixel !== null || leftBorder !== null || rightBorder !== null) {
-            // Use clip region for specific pixel range
-            const viewport = await page.viewport();
-            const x = leftBorder !== null ? leftBorder : 0;
-            const y = startFromPixel !== null ? startFromPixel : 0;
-            const width = rightBorder !== null ? (rightBorder - x) : (viewport.width - x);
-            const height = endAtPixel !== null ? (endAtPixel - y) : (viewport.height - y);
+        // Scrape news articles
+        const newsArticles = await page.evaluate((maxNews) => {
+            const articles = [];
             
-            screenshotOptions.clip = {
-                x: x,
-                y: y,
-                width: width,
-                height: height
+            // Common news article selectors for various news websites
+            const selectors = [
+                'article',
+                '.article',
+                '.news-item',
+                '.story',
+                '.post',
+                '.entry',
+                '[class*="article"]',
+                '[class*="story"]',
+                '[class*="news"]',
+                'h1, h2, h3',
+                '.headline',
+                '.title'
+            ];
+            
+            // Try different selectors to find news articles
+            for (const selector of selectors) {
+                const elements = document.querySelectorAll(selector);
+                
+                for (const element of elements) {
+                    if (articles.length >= maxNews) break;
+                    
+                    // Extract title
+                    let title = '';
+                    const titleElement = element.querySelector('h1, h2, h3, .headline, .title, [class*="title"], [class*="headline"]') || element;
+                    if (titleElement) {
+                        title = titleElement.textContent?.trim() || titleElement.innerText?.trim() || '';
+                    }
+                    
+                    // Extract link
+                    let link = '';
+                    const linkElement = element.querySelector('a') || (element.tagName === 'A' ? element : null);
+                    if (linkElement) {
+                        link = linkElement.href || '';
+                    }
+                    
+                    // Extract summary/description
+                    let summary = '';
+                    const summaryElement = element.querySelector('p, .summary, .excerpt, .description, [class*="summary"], [class*="excerpt"]');
+                    if (summaryElement) {
+                        summary = summaryElement.textContent?.trim() || summaryElement.innerText?.trim() || '';
+                    }
+                    
+                    // Extract image
+                    let image = '';
+                    const imageElement = element.querySelector('img');
+                    if (imageElement) {
+                        image = imageElement.src || imageElement.dataset.src || '';
+                    }
+                    
+                    // Only add if we have a meaningful title
+                    if (title && title.length > 10 && !title.toLowerCase().includes('cookie') && !title.toLowerCase().includes('subscribe')) {
+                        // Check if this article is already added (avoid duplicates)
+                        const isDuplicate = articles.some(article => 
+                            article.title === title || 
+                            (article.link && link && article.link === link)
+                        );
+                        
+                        if (!isDuplicate) {
+                            articles.push({
+                                title: title.substring(0, 200), // Limit title length
+                                link: link,
+                                summary: summary.substring(0, 300), // Limit summary length
+                                image: image,
+                                scrapedAt: new Date().toISOString()
+                            });
+                        }
+                    }
+                }
+                
+                if (articles.length >= maxNews) break;
+            }
+            
+            return articles.slice(0, maxNews);
+        }, maxNews);
+
+        console.log(`Found ${newsArticles.length} news articles`);
+        
+        // Save to file if requested
+        if (saveToFile) {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const domain = new URL(url).hostname.replace(/[^a-zA-Z0-9]/g, '_');
+            const newsFilename = filename || `news_${domain}_${timestamp}.json`;
+            const newsPath = path.join(newsDir, newsFilename);
+            
+            const newsData = {
+                url: url,
+                scrapedAt: new Date().toISOString(),
+                totalArticles: newsArticles.length,
+                articles: newsArticles
             };
-            console.log(`Taking clipped screenshot: x=${x}px, y=${y}px, width=${width}px, height=${height}px`);
-        } else if (startFromPixel !== null) {
-            // Start from pixel and go to bottom (existing behavior)
-            screenshotOptions.fullPage = fullPage;
-        } else {
-            // Default behavior
-            screenshotOptions.fullPage = fullPage;
+            
+            fs.writeFileSync(newsPath, JSON.stringify(newsData, null, 2));
+            console.log(`News data saved: ${newsPath}`);
         }
-
-        if (format === 'jpeg' && quality) {
-            screenshotOptions.quality = quality;
-        }
-
-        await page.screenshot(screenshotOptions);
-
-        console.log(`Screenshot saved: ${screenshotPath}`);
-        return screenshotPath;
+        
+        return newsArticles;
 
     } catch (error) {
-        console.error('Error taking screenshot:', error);
+        console.error('Error scraping news:', error);
         throw error;
     } finally {
         if (browser) {
@@ -466,8 +471,80 @@ async function takeScreenshot(url, options = {}) {
     }
 }
 
-// API endpoint for taking screenshots
-app.post('/screenshot', async (req, res) => {
+/**
+ * Scrape news from multiple websites
+ * @param {Array} urls - Array of URLs to scrape
+ * @param {Object} options - Scraping options
+ * @returns {Promise<Object>} - Object containing all scraped news
+ */
+async function scrapeMultipleNews(options = {}) {
+    // Get enabled websites from config
+    const enabledWebsites = config.websites.filter(site => site.enabled);
+    const urls = enabledWebsites.map(site => site.url);
+    
+    // Merge config options with provided options
+    const mergedOptions = {
+        maxNews: config.scraping.maxNews,
+        delayBetweenRequests: config.scraping.delayBetweenRequests,
+        viewport: config.scraping.viewport,
+        waitTime: config.scraping.waitTime,
+        ...options
+    };
+    
+    const results = {
+        totalWebsites: urls.length,
+        scrapedAt: new Date().toISOString(),
+        websites: [],
+        allArticles: []
+    };
+
+    for (const url of urls) {
+        try {
+            console.log(`\nScraping: ${url}`);
+            const articles = await scrapeTopNews(url, { ...mergedOptions, saveToFile: false });
+            
+            const websiteData = {
+                url: url,
+                domain: new URL(url).hostname,
+                success: true,
+                articleCount: articles.length,
+                articles: articles
+            };
+            
+            results.websites.push(websiteData);
+            results.allArticles.push(...articles);
+            
+            // Add delay between requests to be respectful
+            await new Promise(resolve => setTimeout(resolve, mergedOptions.delayBetweenRequests));
+            
+        } catch (error) {
+            console.error(`Error scraping ${url}:`, error.message);
+            results.websites.push({
+                url: url,
+                domain: new URL(url).hostname,
+                success: false,
+                error: error.message,
+                articleCount: 0,
+                articles: []
+            });
+        }
+    }
+
+    // Save combined results to file
+    if (options.saveToFile !== false) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = options.filename || `news_multiple_sites_${timestamp}.json`;
+        const filePath = path.join(newsDir, filename);
+        
+        fs.writeFileSync(filePath, JSON.stringify(results, null, 2));
+        console.log(`\nCombined news data saved: ${filePath}`);
+    }
+
+    return results;
+}
+
+// API endpoint for scraping news from single URL
+app.post('/scrape-news', async (req, res) => {
     try {
         const { url, options = {} } = req.body;
 
@@ -475,19 +552,18 @@ app.post('/screenshot', async (req, res) => {
             return res.status(400).json({ error: 'URL is required' });
         }
 
-        const screenshotPath = await takeScreenshot(url, options);
-        const filename = path.basename(screenshotPath);
+        const newsArticles = await scrapeTopNews(url, options);
 
         res.json({
             success: true,
-            message: 'Screenshot taken successfully',
-            filename,
-            path: screenshotPath,
-            url: `/screenshots/${filename}`
+            message: 'News scraped successfully',
+            totalArticles: newsArticles.length,
+            articles: newsArticles,
+            scrapedAt: new Date().toISOString()
         });
 
     } catch (error) {
-        console.error('Screenshot API error:', error);
+        console.error('News scraping API error:', error);
         res.status(500).json({
             success: false,
             error: error.message
@@ -495,12 +571,40 @@ app.post('/screenshot', async (req, res) => {
     }
 });
 
-// Serve screenshot files
-app.use('/screenshots', express.static(screenshotsDir));
+// API endpoint for scraping news from multiple URLs
+app.post('/scrape-multiple-news', async (req, res) => {
+    try {
+        const { options = {} } = req.body;
+
+        // Check if there are any enabled websites in config
+        const enabledWebsites = config.websites.filter(site => site.enabled);
+        if (enabledWebsites.length === 0) {
+            return res.status(400).json({ error: 'No enabled websites found in configuration' });
+        }
+
+        const results = await scrapeMultipleNews(options);
+
+        res.json({
+            success: true,
+            message: 'Multiple news sites scraped successfully',
+            ...results
+        });
+
+    } catch (error) {
+        console.error('Multiple news scraping API error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Serve news data files
+app.use('/news-data', express.static(newsDir));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-    res.json({ status: 'OK', service: 'Screenshot Service' });
+    res.json({ status: 'OK', service: 'News Scraping Service' });
 });
 
 // Command line interface
@@ -510,64 +614,208 @@ if (require.main === module) {
     if (args.length === 0) {
         // Start as web service
         app.listen(PORT, () => {
-            console.log(`Screenshot service running on port ${PORT}`);
+            console.log(`News scraping service running on port ${PORT}`);
             console.log(`Health check: http://localhost:${PORT}/health`);
-            console.log(`API endpoint: POST http://localhost:${PORT}/screenshot`);
+            console.log(`API endpoints:`);
+            console.log(`  - Single site: POST http://localhost:${PORT}/scrape-news`);
+            console.log(`  - Multiple sites: POST http://localhost:${PORT}/scrape-multiple-news`);
         });
     } else {
         // Command line mode
-        const url = args[0];
         const options = {};
+        const urls = [];
+        let useConfig = false;
+        let currentArg = 0;
 
-        // Parse command line options
-        for (let i = 1; i < args.length; i += 2) {
-            const key = args[i].replace('--', '');
-            const value = args[i + 1];
+        // Check for --config flag first
+        if (args.includes('--config')) {
+            useConfig = true;
+        }
 
-            if (key === 'width' || key === 'height' || key === 'quality' || key === 'waitFor' || key === 'startFromPixel' || key === 'endAtPixel' || key === 'leftBorder' || key === 'rightBorder') {
-                options[key] = parseInt(value);
-            } else if (key === 'fullPage') {
-                options[key] = value === 'true';
-            } else {
-                options[key] = value;
+        // Collect URLs (arguments without -- prefix, excluding --config)
+        while (currentArg < args.length && !args[currentArg].startsWith('--')) {
+            urls.push(args[currentArg]);
+            currentArg++;
+        }
+
+        // Parse options
+        for (let i = currentArg; i < args.length; i++) {
+            if (args[i] === '--config') {
+                useConfig = true;
+                continue;
+            }
+            
+            if (args[i].startsWith('--')) {
+                const key = args[i].replace('--', '');
+                const value = args[i + 1];
+                
+                if (key === 'width' || key === 'height' || key === 'waitFor' || key === 'maxNews') {
+                    options[key] = parseInt(value);
+                } else if (key === 'saveToFile') {
+                    options[key] = value === 'true';
+                } else {
+                    options[key] = value;
+                }
+                i++; // Skip the value
             }
         }
 
-        // Show usage help if no URL provided
-        if (!url) {
-            console.log('Usage: node snapshot.js <url> [options]');
-            console.log('Options:');
-            console.log('  --width <number>        Viewport width (default: 1920)');
-            console.log('  --height <number>       Viewport height (default: 1080)');
-            console.log('  --fullPage <true|false> Take full page screenshot (default: true)');
-            console.log('  --format <png|jpeg>     Image format (default: png)');
-            console.log('  --quality <number>      JPEG quality 1-100 (default: 90)');
-            console.log('  --waitFor <number>      Wait time in ms (default: 2000)');
-            console.log('  --filename <string>     Custom filename');
-            console.log('  --skipElement <string>  CSS selector to skip (e.g., home-page-mast)');
-            console.log('  --startFromPixel <number> Start from specific pixel position (e.g., 500)');
-            console.log('  --endAtPixel <number>   End at specific pixel position (e.g., 1500)');
-            console.log('  --leftBorder <number>   Left border position in pixels (e.g., 100)');
-            console.log('  --rightBorder <number>  Right border position in pixels (e.g., 1800)');
-            console.log('');
-            console.log('Examples:');
-            console.log('  node snapshot.js https://example.com --skipElement home-page-mast');
-            console.log('  node snapshot.js https://example.com --startFromPixel 500');
-            console.log('  node snapshot.js https://example.com --startFromPixel 500 --endAtPixel 1500');
-            console.log('  node snapshot.js https://example.com --startFromPixel 500 --endAtPixel 1500 --leftBorder 100 --rightBorder 1800');
-            process.exit(1);
+        // Check for special --config flag to use configuration file
+        if (useConfig || urls.length === 0) {
+            if (urls.length === 0 && !useConfig) {
+                console.log('Usage:');
+                console.log('  node snapshot.js --config [options]                    # Use websites from config.json');
+                console.log('  node snapshot.js <url1> [url2] [url3] ... [options]   # Use specific URLs');
+                console.log('');
+                console.log('Options:');
+                console.log('  --width <number>        Viewport width (default: from config or 1920)');
+                console.log('  --height <number>       Viewport height (default: from config or 1080)');
+                console.log('  --waitFor <number>      Wait time in ms (default: from config or 3000)');
+                console.log('  --maxNews <number>      Maximum number of news articles per site (default: from config or 10)');
+                console.log('  --saveToFile <true|false> Save results to JSON file (default: true)');
+                console.log('  --filename <string>     Custom filename for saved data');
+                console.log('');
+                console.log('Examples:');
+                console.log('  node snapshot.js --config');
+                console.log('  node snapshot.js --config --maxNews 5');
+                console.log('  node snapshot.js https://gulfnews.com');
+                console.log('  node snapshot.js https://gulfnews.com https://khaleejtimes.com --maxNews 5');
+                process.exit(1);
+            }
+            
+            // Use configuration file mode
+            const enabledWebsites = config.websites.filter(site => site.enabled);
+            if (enabledWebsites.length === 0) {
+                console.error('No enabled websites found in config.json');
+                process.exit(1);
+            }
+            
+            console.log(`Using ${enabledWebsites.length} websites from configuration:`);
+            enabledWebsites.forEach(site => console.log(`  - ${site.name}: ${site.url}`));
+            
+            scrapeMultipleNews(options)
+                .then(results => {
+                    console.log(`\nScraped ${results.totalWebsites} websites with ${results.allArticles.length} total articles`);
+                    
+                    results.websites.forEach(site => {
+                        console.log(`\n--- ${site.domain} (${site.articleCount} articles) ---`);
+                        if (!site.success) {
+                            console.log(`   Error: ${site.error}`);
+                            return;
+                        }
+                        
+                        site.articles.forEach((article, index) => {
+                            console.log(`   ${index + 1}. ${article.title}`);
+                        });
+                    });
+                    
+                    console.log(`\nFull results saved to: ${path.join(newsDir, options.filename || 'news_multiple_sites_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json')}`);
+                    process.exit(0);
+                })
+                .catch(error => {
+                    console.error('Error:', error.message);
+                    process.exit(1);
+                });
+            return;
         }
 
-        takeScreenshot(url, options)
-            .then(screenshotPath => {
-                console.log(`Screenshot saved to: ${screenshotPath}`);
-                process.exit(0);
-            })
-            .catch(error => {
-                console.error('Error:', error.message);
-                process.exit(1);
-            });
+        // If only one URL, use scrapeTopNews
+        if (urls.length === 1) {
+            scrapeTopNews(urls[0], options)
+                .then(newsArticles => {
+                    console.log(`\nScraped ${newsArticles.length} news articles:`);
+                    newsArticles.forEach((article, index) => {
+                        console.log(`\n${index + 1}. ${article.title}`);
+                        if (article.link) console.log(`   Link: ${article.link}`);
+                        if (article.summary) console.log(`   Summary: ${article.summary.substring(0, 100)}...`);
+                    });
+                    process.exit(0);
+                })
+                .catch(error => {
+                    console.error('Error:', error.message);
+                    process.exit(1);
+                });
+        } else {
+            // Multiple URLs, use scrapeMultipleNews with URLs (backward compatibility)
+            // Create a temporary function that accepts URLs for CLI usage
+            const scrapeMultipleNewsWithUrls = async (urls, options = {}) => {
+                const results = {
+                    totalWebsites: urls.length,
+                    scrapedAt: new Date().toISOString(),
+                    websites: [],
+                    allArticles: []
+                };
+
+                for (const url of urls) {
+                    try {
+                        console.log(`\nScraping: ${url}`);
+                        const articles = await scrapeTopNews(url, { ...options, saveToFile: false });
+                        
+                        const websiteData = {
+                            url: url,
+                            domain: new URL(url).hostname,
+                            success: true,
+                            articleCount: articles.length,
+                            articles: articles
+                        };
+                        
+                        results.websites.push(websiteData);
+                        results.allArticles.push(...articles);
+                        
+                        // Add delay between requests
+                        await new Promise(resolve => setTimeout(resolve, options.delayBetweenRequests || 2000));
+                        
+                    } catch (error) {
+                        console.error(`Error scraping ${url}:`, error.message);
+                        results.websites.push({
+                            url: url,
+                            domain: new URL(url).hostname,
+                            success: false,
+                            error: error.message,
+                            articleCount: 0,
+                            articles: []
+                        });
+                    }
+                }
+
+                // Save combined results to file
+                if (options.saveToFile !== false) {
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const filename = options.filename || `news_multiple_sites_${timestamp}.json`;
+                    const filepath = path.join(newsDir, filename);
+                    
+                    fs.writeFileSync(filepath, JSON.stringify(results, null, 2));
+                    console.log(`\nResults saved to: ${filepath}`);
+                }
+
+                return results;
+            };
+            
+            scrapeMultipleNewsWithUrls(urls, options)
+                .then(results => {
+                    console.log(`\nScraped ${results.totalWebsites} websites with ${results.allArticles.length} total articles`);
+                    
+                    results.websites.forEach(site => {
+                        console.log(`\n--- ${site.domain} (${site.articleCount} articles) ---`);
+                        if (!site.success) {
+                            console.log(`   Error: ${site.error}`);
+                            return;
+                        }
+                        
+                        site.articles.forEach((article, index) => {
+                            console.log(`   ${index + 1}. ${article.title}`);
+                        });
+                    });
+                    
+                    console.log(`\nFull results saved to: ${path.join(newsDir, options.filename || 'news_multiple_sites_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json')}`);
+                    process.exit(0);
+                })
+                .catch(error => {
+                    console.error('Error:', error.message);
+                    process.exit(1);
+                });
+        }
     }
 }
 
-module.exports = { takeScreenshot, app };
+module.exports = { scrapeTopNews, scrapeMultipleNews, app };
