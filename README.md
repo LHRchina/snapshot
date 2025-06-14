@@ -1,52 +1,92 @@
-# Website Snapshot Tool
+# News to Audio Generator
 
-A simple Node.js tool that uses Puppeteer to take full-page screenshots of websites.
+A Node.js application that automatically generates audio summaries from news articles using advanced translation services and text-to-speech technology.
 
-## Features
+## 🌟 Features
 
-- Takes full-page screenshots of any website
-- Automatically handles dynamic content loading
-- Saves screenshots with timestamp and domain name
-- Creates organized output directory structure
-- Handles cookie consent and page loading gracefully
+- **Multi-source News Fetching**: Automatically retrieves latest news from various sources
+- **Advanced Translation**: Integrated iFlytek OTS translation service with fallback to translatte
+- **High-Quality Audio**: Generates professional audio using iFlytek TTS (with Murf.ai fallback)
+- **Robust Error Handling**: Three-tier fallback system for maximum reliability
+- **Security-First**: Environment-based configuration with credential protection
+- **Performance Monitoring**: Built-in logging and performance tracking
 
-## Installation
+## 🚀 Quick Start
 
-1. Install dependencies:
-```bash
-npm install
+### Prerequisites
+
+- Node.js (v14 or higher)
+- npm or yarn
+- iFlytek OTS API credentials (optional, has fallback)
+- Murf.ai API credentials
+
+### Installation
+
+1. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+2. **Configure environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your actual credentials
+   ```
+
+3. **Run security audit**
+   ```bash
+   node apply_security_fixes.js
+   ```
+
+4. **Test the system**
+   ```bash
+   # Test translation service
+   node ots.js test
+   
+   # Generate news audio
+   node news-to-audio.js
+   ```
+
+## 📁 Project Structure
+
+```
+news-to-audio/
+├── news-to-audio.js          # Main application
+├── ots.js                    # iFlytek translation service
+├── apply_security_fixes.js   # Security utilities
+├── .env.example              # Environment template
+├── .gitignore               # Git ignore rules
+├── package.json             # Dependencies
+├── docs/
+│   ├── IFLYTEK_OTS_INTEGRATION.md
+│   └── ADVANCED_CODE_QUALITY_ENHANCEMENTS.md
+├── news_data/               # Generated content
+│   ├── summary.txt
+│   └── audio.mp3
+└── logs/                    # Application logs
 ```
 
-## Usage
+## 🔧 Configuration
 
-### Take a screenshot of Gulf News
-```bash
-npm start
+### Environment Variables
+
+Create a `.env` file based on `.env.example` with your actual credentials:
+
+```env
+# iFlytek Services (Translation + TTS)
+IFLYTEK_APP_ID=your_app_id_here
+IFLYTEK_API_SECRET=your_api_secret_here
+IFLYTEK_API_KEY=your_api_key_here
+IFLYTEK_HOST=api-dx.xf-yun.com
+
+# Murf.ai Text-to-Speech (Fallback)
+MURF_API_KEY=your_murf_api_key_here
+
+# Performance Settings
+MAX_TEXT_LENGTH=10000
+TRANSLATION_CHUNK_SIZE=2000
+LOG_LEVEL=info
 ```
-
-### Run the script directly
-```bash
-node snapshot.js
-```
-
-## Output
-
-Screenshots are saved in the `./screenshots/` directory with the following naming convention:
-```
-{domain}_{timestamp}.png
-```
-
-Example: `gulfnews_com_2024-01-15T10-30-45-123Z.png`
-
-## Configuration
-
-The script is currently configured to screenshot `https://gulfnews.com/`, but you can modify the `targetUrl` variable in `snapshot.js` to capture any website.
-
-### Screenshot Settings
-- **Viewport**: 1920x1080 pixels
-- **Format**: PNG
-- **Type**: Full page screenshot
-- **Wait time**: 2 seconds after page load for dynamic content
 
 ## Cron Job Setup
 

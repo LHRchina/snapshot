@@ -3,6 +3,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const puppeteer = require('puppeteer');
 const axios = require('axios');
+const translatte = require('translatte');
 
 // Load configuration
 const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -20,7 +21,7 @@ if (!fs.existsSync(newsDir)) {
  */
 function cleanTextForAudio(text) {
     if (!text) return '';
-    
+
     return text
         .replace(/[\r\n]+/g, ' ') // Replace line breaks with spaces
         .replace(/\s+/g, ' ') // Replace multiple spaces with single space
@@ -33,9 +34,9 @@ function cleanTextForAudio(text) {
 /**
  * Generate a comprehensive news summary for audio narration
  * @param {Object} newsData - The scraped news data
- * @returns {string} - Audio-ready summary
+ * @returns {Promise<string>} - Audio-ready summary in Chinese
  */
-function generateAudioSummary(newsData) {
+async function generateAudioSummary(newsData) {
     const timestamp = new Date(newsData.scrapedAt).toLocaleDateString('en-US', {
         weekday: 'long',
         year: 'numeric',
@@ -50,7 +51,7 @@ function generateAudioSummary(newsData) {
 
     // Group articles by topic/keywords for better organization
     const topicGroups = groupArticlesByTopic(newsData.allArticles);
-    
+
     // Add breaking news section
     const breakingNews = identifyBreakingNews(newsData.allArticles);
     if (breakingNews.length > 0) {
@@ -78,7 +79,7 @@ function generateAudioSummary(newsData) {
         if (website.success && website.articles.length > 0) {
             const domain = website.domain.replace('www.', '');
             summary += `From ${domain}: `;
-            
+
             // Get top 2 articles from each website
             website.articles.slice(0, 2).forEach(article => {
                 summary += `${cleanTextForAudio(article.title)}. `;
@@ -87,8 +88,29 @@ function generateAudioSummary(newsData) {
     });
 
     summary += 'This concludes today\'s news summary. Thank you for listening.';
-    
-    return summary;
+
+    try {
+        console.log('🔄 Translating summary to Chinese...');
+
+        // Try iFlytek OTS first (if available)
+        try {
+            const { translateWithFallback } = require('./ots.js');
+            const translated = await translateWithFallback(summary, 'cn');
+            console.log('✅ iFlytek OTS translation completed');
+            return translated;
+        } catch (otsError) {
+            console.log('⚠️  iFlytek OTS not available, using fallback translation...');
+
+            // Fallback to translatte library
+            const translatedSummary = await translatte(summary, { to: 'zh' });
+            console.log('✅ Fallback translation completed');
+            return translatedSummary.text;
+        }
+    } catch (error) {
+        console.error('❌ All translation methods failed:', error.message);
+        console.log('📝 Using original English summary');
+        return summary;
+    }
 }
 
 /**
@@ -108,11 +130,11 @@ function groupArticlesByTopic(articles) {
     };
 
     const grouped = {};
-    
+
     articles.forEach(article => {
         const title = article.title.toLowerCase();
         const summary = (article.summary || '').toLowerCase();
-        
+
         for (const [topic, keywords] of Object.entries(topics)) {
             if (keywords.some(keyword => title.includes(keyword) || summary.includes(keyword))) {
                 if (!grouped[topic]) grouped[topic] = [];
@@ -121,7 +143,7 @@ function groupArticlesByTopic(articles) {
             }
         }
     });
-    
+
     return grouped;
 }
 
@@ -132,7 +154,7 @@ function groupArticlesByTopic(articles) {
  */
 function identifyBreakingNews(articles) {
     const breakingKeywords = ['breaking', 'urgent', 'crash', 'emergency', 'death', 'accident', 'tragedy'];
-    
+
     return articles.filter(article => {
         const title = article.title.toLowerCase();
         return breakingKeywords.some(keyword => title.includes(keyword));
@@ -146,72 +168,122 @@ function identifyBreakingNews(articles) {
  * @returns {Promise<boolean>} - Success status
  */
 async function convertToAudio(text, outputPath) {
-    // Try Murf.ai API first if voiceKey is available
-    if (config.voiceKey && config.voiceKey.trim()) {
+    // Try iFlytek TTS API first if credentials are available
+    if (process.env.IFLYTEK_APP_ID && process.env.IFLYTEK_API_KEY && process.env.IFLYTEK_API_SECRET) {
         try {
-            console.log('Using Murf.ai API for high-quality text-to-speech...');
-            const success = await convertWithMurfAI(text, outputPath);
+            console.log('Using iFlytek TTS API for high-quality text-to-speech...');
+            const { convertWithIFlytekTTS } = require('./iflytek-tts.js');
+            const success = await convertWithIFlytekTTS(text, outputPath);
             if (success) return true;
         } catch (error) {
-            console.log('Murf.ai API failed, falling back to system TTS:', error.message);
+            console.log('iFlytek TTS API failed, falling back to system TTS:', error.message);
         }
     }
-    
+
+    // Fallback to Murf.ai if iFlytek is not available
+    // if (config.voiceKey && config.voiceKey.trim()) {
+    //     try {
+    //         console.log('Using Murf.ai API for high-quality text-to-speech...');
+    //         const success = await convertWithMurfAI(text, outputPath);
+    //         if (success) return true;
+    //     } catch (error) {
+    //         console.log('Murf.ai API failed, falling back to system TTS:', error.message);
+    //     }
+    // }
+
     // Fallback to system TTS
-    try {
-        // Clean text for PowerShell compatibility
-        const cleanText = text.replace(/'/g, "''").replace(/"/g, '""');
-        
-        // Try using Windows built-in TTS first
-        if (process.platform === 'win32') {
-            const powershellScript = `
-Add-Type -AssemblyName System.Speech
-$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
-$synth.SetOutputToWaveFile('${outputPath}')
-$synth.Speak('${cleanText}')
-$synth.Dispose()
-`;
-            
-            const scriptPath = path.join(__dirname, 'temp_tts.ps1');
-            fs.writeFileSync(scriptPath, powershellScript);
-            
-            execSync(`powershell -ExecutionPolicy Bypass -File "${scriptPath}"`, { stdio: 'inherit' });
-            
-            // Clean up temp script
-            fs.unlinkSync(scriptPath);
-            
-            console.log(`Audio file created using Windows TTS: ${outputPath}`);
-            return true;
-        } else {
-            // For non-Windows systems, try using espeak or festival
-            try {
-                execSync(`espeak "${text}" -w "${outputPath}"`, { stdio: 'inherit' });
-                console.log(`Audio file created using espeak: ${outputPath}`);
-                return true;
-            } catch (error) {
-                console.log('espeak not available, trying festival...');
-                const textFile = outputPath.replace('.wav', '.txt');
-                fs.writeFileSync(textFile, text);
-                execSync(`text2wave "${textFile}" -o "${outputPath}"`, { stdio: 'inherit' });
-                fs.unlinkSync(textFile);
-                console.log(`Audio file created using festival: ${outputPath}`);
-                return true;
-            }
-        }
-    } catch (error) {
-        console.error('Error converting to audio:', error.message);
-        console.log('\nAlternative options:');
-        console.log('1. Install espeak: https://espeak.sourceforge.net/');
-        console.log('2. Use online TTS services like Google Text-to-Speech');
-        console.log('3. Use AI voice services like ElevenLabs or Murf.ai');
-        
-        // Save text file as fallback
-         const textPath = outputPath.replace(/\.(wav|mp3)$/, '_audio_script.txt');
-         fs.writeFileSync(textPath, text);
-         console.log(`Audio script saved to: ${textPath}`);
-        
-        return false;
-    }
+//     try {
+//         // For macOS, use built-in say command with Chinese voice support
+//         if (process.platform === 'darwin') {
+//             try {
+//                 // Check if text contains Chinese characters
+//                 const containsChinese = /[\u4e00-\u9fff]/.test(text);
+//                 let voice = 'Alex'; // Default English voice
+
+//                 if (containsChinese) {
+//                     // Use Chinese voice for Chinese text
+//                     voice = 'Tingting'; // Chinese (China) voice
+//                     console.log('Detected Chinese text, using Chinese voice...');
+//                 }
+
+//                 // Convert to AIFF format (native macOS say command format)
+//                 const aiffPath = outputPath.replace(/\.(mp3|wav)$/, '.aiff');
+//                 execSync(`say -v "${voice}" -o "${aiffPath}" "${text}"`, { stdio: 'inherit' });
+
+//                 // Convert AIFF to MP3/WAV if needed (optional, requires ffmpeg)
+//                 if (outputPath.endsWith('.mp3') || outputPath.endsWith('.wav')) {
+//                     try {
+//                         execSync(`ffmpeg -i "${aiffPath}" "${outputPath}" -y`, { stdio: 'inherit' });
+//                         fs.unlinkSync(aiffPath); // Remove temporary AIFF file
+//                         console.log(`Audio file created using macOS TTS (${voice}): ${outputPath}`);
+//                     } catch (ffmpegError) {
+//                         // If ffmpeg is not available, keep the AIFF file
+//                         console.log(`Audio file created using macOS TTS (${voice}): ${aiffPath}`);
+//                         console.log('Note: Install ffmpeg to convert to MP3/WAV format');
+//                     }
+//                 } else {
+//                     console.log(`Audio file created using macOS TTS (${voice}): ${aiffPath}`);
+//                 }
+//                 return true;
+//             } catch (error) {
+//                 console.log('macOS say command failed, trying other options...');
+//             }
+//         }
+
+//         // Clean text for PowerShell compatibility
+//         const cleanText = text.replace(/'/g, "''").replace(/"/g, '""');
+
+//         // Try using Windows built-in TTS
+//         if (process.platform === 'win32') {
+//             const powershellScript = `
+// Add-Type -AssemblyName System.Speech
+// $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
+// $synth.SetOutputToWaveFile('${outputPath}')
+// $synth.Speak('${cleanText}')
+// $synth.Dispose()
+// `;
+
+//             const scriptPath = path.join(__dirname, 'temp_tts.ps1');
+//             fs.writeFileSync(scriptPath, powershellScript);
+
+//             execSync(`powershell -ExecutionPolicy Bypass -File "${scriptPath}"`, { stdio: 'inherit' });
+
+//             // Clean up temp script
+//             fs.unlinkSync(scriptPath);
+
+//             console.log(`Audio file created using Windows TTS: ${outputPath}`);
+//             return true;
+//         } else {
+//             // For Linux systems, try using espeak or festival
+//             try {
+//                 execSync(`espeak "${text}" -w "${outputPath}"`, { stdio: 'inherit' });
+//                 console.log(`Audio file created using espeak: ${outputPath}`);
+//                 return true;
+//             } catch (error) {
+//                 console.log('espeak not available, trying festival...');
+//                 const textFile = outputPath.replace('.wav', '.txt');
+//                 fs.writeFileSync(textFile, text);
+//                 execSync(`text2wave "${textFile}" -o "${outputPath}"`, { stdio: 'inherit' });
+//                 fs.unlinkSync(textFile);
+//                 console.log(`Audio file created using festival: ${outputPath}`);
+//                 return true;
+//             }
+//         }
+//     } catch (error) {
+//         console.error('Error converting to audio:', error.message);
+//         console.log('\nAlternative options:');
+//         console.log('1. Install espeak: https://espeak.sourceforge.net/');
+//         console.log('2. Use online TTS services like Google Text-to-Speech');
+//         console.log('3. Use AI voice services like ElevenLabs or Murf.ai');
+//         console.log('4. For Chinese TTS on macOS: Install Chinese voices in System Preferences > Accessibility > Spoken Content');
+
+//         // Save text file as fallback
+//          const textPath = outputPath.replace(/\.(wav|mp3)$/, '_audio_script.txt');
+//          fs.writeFileSync(textPath, text);
+//          console.log(`Audio script saved to: ${textPath}`);
+
+//         return false;
+//     }
 }
 
 /**
@@ -225,13 +297,13 @@ async function convertWithMurfAI(text, outputPath) {
         // Split text into chunks if it's too long (Murf.ai has character limits)
         const maxChunkLength = 3000;
         const textChunks = splitTextIntoChunks(text, maxChunkLength);
-        
+
         const audioBuffers = [];
-        
+
         for (let i = 0; i < textChunks.length; i++) {
             const chunk = textChunks[i];
             console.log(`Processing chunk ${i + 1}/${textChunks.length} (${chunk.length} characters)`);
-            
+
             const requestData = {
                 text: chunk,
                 voiceId: "en-US-charles", // Professional male voice
@@ -240,7 +312,7 @@ async function convertWithMurfAI(text, outputPath) {
                 sampleRate: 44100,
                 encodeAsBase64: true,
             };
-            
+
             const requestConfig = {
                 method: 'post',
                 url: 'https://api.murf.ai/v1/speech/generate',
@@ -252,9 +324,9 @@ async function convertWithMurfAI(text, outputPath) {
                 data: requestData
                 // Remove responseType to get JSON response with base64 data
             };
-            
+
             const response = await axios(requestConfig);
-            
+
             if (response.status === 200) {
                 // response.data.encodedAudio is a base64 string for an MP3 file
                 if (response.data && response.data.encodedAudio) {
@@ -265,7 +337,7 @@ async function convertWithMurfAI(text, outputPath) {
                     console.log('Response data keys:', Object.keys(response.data || {}));
                     throw new Error('No encodedAudio found in response');
                 }
-                
+
                 // Add delay between requests to respect rate limits
                 if (i < textChunks.length - 1) {
                     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -274,7 +346,7 @@ async function convertWithMurfAI(text, outputPath) {
                 throw new Error(`Murf.ai API returned status ${response.status}`);
             }
         }
-        
+
         // Combine audio buffers if multiple chunks
         let finalAudioBuffer;
         if (audioBuffers.length === 1) {
@@ -289,13 +361,13 @@ async function convertWithMurfAI(text, outputPath) {
              }
              finalAudioBuffer = audioBuffers[0]; // Use first chunk as main file
          }
-         
+
          // Save the audio file
          fs.writeFileSync(outputPath, finalAudioBuffer);
          console.log(`🎵 High-quality MP3 audio created with Murf.ai: ${outputPath}`);
-        
+
         return true;
-        
+
     } catch (error) {
         if (error.response) {
             console.error('Murf.ai API Error:', error.response.status, error.response.statusText);
@@ -319,13 +391,13 @@ function splitTextIntoChunks(text, maxLength) {
     if (text.length <= maxLength) {
         return [text];
     }
-    
+
     const chunks = [];
     let currentChunk = '';
-    
+
     // Split by sentences to maintain natural breaks
     const sentences = text.split(/(?<=[.!?])\s+/);
-    
+
     for (const sentence of sentences) {
         if (currentChunk.length + sentence.length <= maxLength) {
             currentChunk += (currentChunk ? ' ' : '') + sentence;
@@ -349,11 +421,11 @@ function splitTextIntoChunks(text, maxLength) {
             }
         }
     }
-    
+
     if (currentChunk) {
         chunks.push(currentChunk);
     }
-    
+
     return chunks;
 }
 
@@ -366,7 +438,7 @@ async function scrapeMultipleNews(options = {}) {
     // Get enabled websites from config
     const enabledWebsites = config.websites.filter(site => site.enabled);
     const urls = enabledWebsites.map(site => site.url);
-    
+
     // Merge config options with provided options
     const mergedOptions = {
         maxNews: config.scraping.maxNews,
@@ -375,7 +447,7 @@ async function scrapeMultipleNews(options = {}) {
         waitTime: config.scraping.waitTime,
         ...options
     };
-    
+
     const results = {
         totalWebsites: urls.length,
         scrapedAt: new Date().toISOString(),
@@ -387,35 +459,200 @@ async function scrapeMultipleNews(options = {}) {
         try {
             console.log(`\nScraping: ${url}`);
             const articles = await scrapeTopNews(url, { ...mergedOptions, saveToFile: false });
-            
+
+            // If no articles found, try alternative method
+            let finalArticles = articles;
+            let fallbackUsed = false;
+
+            if (articles.length === 0) {
+                console.log(`No articles found with primary method, trying alternative approach for ${url}...`);
+                try {
+                    const alternativeArticles = await scrapeWithAlternativeMethod(url, mergedOptions);
+                    if (alternativeArticles.length > 0) {
+                        finalArticles = alternativeArticles;
+                        fallbackUsed = true;
+                        console.log(`Alternative method found ${alternativeArticles.length} articles from ${url}`);
+                    }
+                } catch (altError) {
+                    console.warn(`Alternative scraping also failed for ${url}:`, altError.message);
+                }
+            }
+
             const websiteData = {
                 url: url,
                 domain: new URL(url).hostname,
                 success: true,
-                articleCount: articles.length,
-                articles: articles
+                articleCount: finalArticles.length,
+                articles: finalArticles,
+                fallbackUsed: fallbackUsed
             };
-            
+
             results.websites.push(websiteData);
-            results.allArticles.push(...articles);
-            
+            results.allArticles.push(...finalArticles);
+
             // Add delay between requests to be respectful
             await new Promise(resolve => setTimeout(resolve, mergedOptions.delayBetweenRequests));
-            
+
         } catch (error) {
             console.error(`Error scraping ${url}:`, error.message);
-            results.websites.push({
+
+            // Try alternative method for specific errors like socket hang up
+            let finalArticles = [];
+            let fallbackUsed = false;
+
+            if (error.message.includes('socket hang up') ||
+                error.message.includes('net::ERR_') ||
+                error.message.includes('timeout') ||
+                error.message.includes('ECONNRESET')) {
+
+                console.log(`Connection error detected for ${url}, trying alternative HTTP method...`);
+                try {
+                    const alternativeArticles = await scrapeWithAlternativeMethod(url, mergedOptions);
+                    if (alternativeArticles.length > 0) {
+                        finalArticles = alternativeArticles;
+                        fallbackUsed = true;
+                        console.log(`✅ Alternative method successfully found ${alternativeArticles.length} articles from ${url}`);
+                    }
+                } catch (altError) {
+                    console.warn(`Alternative scraping also failed for ${url}:`, altError.message);
+                }
+            }
+
+            const websiteData = {
                 url: url,
                 domain: new URL(url).hostname,
-                success: false,
-                error: error.message,
-                articleCount: 0,
-                articles: []
-            });
+                success: finalArticles.length > 0,
+                error: finalArticles.length > 0 ? undefined : error.message,
+                articleCount: finalArticles.length,
+                articles: finalArticles,
+                fallbackUsed: fallbackUsed
+            };
+
+            results.websites.push(websiteData);
+            if (finalArticles.length > 0) {
+                results.allArticles.push(...finalArticles);
+            }
         }
     }
 
     return results;
+}
+
+/**
+ * Alternative scraping method using HTTP requests instead of browser automation
+ * This method is used as a fallback when Puppeteer fails due to connection issues
+ * like socket hang up, timeouts, or network errors.
+ *
+ * @param {string} url - The URL to scrape
+ * @param {Object} options - Scraping options
+ * @param {number} options.maxNews - Maximum number of articles to extract (default: 10)
+ * @returns {Promise<Array>} - Array of news articles with title, link, summary, image, scrapedAt, and method
+ * @throws {Error} - Throws error if HTTP request fails and fallback creation fails
+ */
+async function scrapeWithAlternativeMethod(url, options = {}) {
+    const { maxNews = 10 } = options;
+
+    try {
+        console.log(`Using HTTP-based scraping for ${url}`);
+
+        // Use axios to fetch the HTML content
+        const response = await axios.get(url, {
+            timeout: 15000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            }
+        });
+
+        const html = response.data;
+        const articles = [];
+
+        // Simple regex-based extraction for news titles
+        const titlePatterns = [
+            /<h[1-3][^>]*>([^<]+)<\/h[1-3]>/gi,
+            /<[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)/gi,
+            /<[^>]*class="[^"]*headline[^"]*"[^>]*>([^<]+)/gi,
+            /<title>([^<]+)<\/title>/gi
+        ];
+
+        const foundTitles = new Set();
+
+        for (const pattern of titlePatterns) {
+            let match;
+            while ((match = pattern.exec(html)) !== null && articles.length < maxNews) {
+                const title = match[1]?.trim().replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ');
+
+                if (title &&
+                    title.length > 15 &&
+                    title.length < 200 &&
+                    !title.toLowerCase().includes('cookie') &&
+                    !title.toLowerCase().includes('subscribe') &&
+                    !title.toLowerCase().includes('menu') &&
+                    !title.toLowerCase().includes('javascript') &&
+                    !foundTitles.has(title.toLowerCase())) {
+
+                    foundTitles.add(title.toLowerCase());
+                    articles.push({
+                        title: title,
+                        link: url,
+                        summary: '',
+                        image: '',
+                        scrapedAt: new Date().toISOString(),
+                        method: 'http-regex'
+                    });
+                }
+            }
+        }
+
+        // If still no articles, try to extract from meta tags
+         if (articles.length === 0) {
+             const metaPatterns = [
+                 /<meta[^>]*property="og:title"[^>]*content="([^"]+)"/gi,
+                 /<meta[^>]*name="title"[^>]*content="([^"]+)"/gi,
+                 /<meta[^>]*property="twitter:title"[^>]*content="([^"]+)"/gi
+             ];
+
+            for (const pattern of metaPatterns) {
+                let match;
+                while ((match = pattern.exec(html)) !== null && articles.length < 3) {
+                    const title = match[1]?.trim().replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ');
+
+                    if (title && title.length > 10 && !foundTitles.has(title.toLowerCase())) {
+                        foundTitles.add(title.toLowerCase());
+                        articles.push({
+                            title: title,
+                            link: url,
+                            summary: '',
+                            image: '',
+                            scrapedAt: new Date().toISOString(),
+                            method: 'meta-tags'
+                        });
+                    }
+                }
+            }
+        }
+
+        console.log(`HTTP-based method found ${articles.length} articles from ${url}`);
+        return articles.slice(0, maxNews);
+
+    } catch (error) {
+        console.error('HTTP-based scraping method failed:', error.message);
+
+        // Final fallback: create a generic news item
+        const domain = new URL(url).hostname;
+        return [{
+            title: `Latest news from ${domain}`,
+            link: url,
+            summary: `Unable to fetch specific articles from ${domain} due to technical restrictions.`,
+            image: '',
+            scrapedAt: new Date().toISOString(),
+            method: 'fallback'
+        }];
+    }
 }
 
 /**
@@ -440,6 +677,7 @@ async function scrapeTopNews(url, options = {}) {
         // Launch browser with optimized settings
         browser = await puppeteer.launch({
             headless: 'new',
+            timeout: 30000, // 30 second timeout for browser launch
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -447,11 +685,20 @@ async function scrapeTopNews(url, options = {}) {
                 '--disable-accelerated-2d-canvas',
                 '--no-first-run',
                 '--no-zygote',
-                '--disable-gpu'
+                '--disable-gpu',
+                '--disable-web-security',
+                '--disable-features=VizDisplayCompositor',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding'
             ]
         });
 
         const page = await browser.newPage();
+
+        // Set page timeout
+        page.setDefaultTimeout(30000);
+        page.setDefaultNavigationTimeout(30000);
 
         // Set viewport
         await page.setViewport({ width, height });
@@ -459,11 +706,24 @@ async function scrapeTopNews(url, options = {}) {
         // Set user agent to avoid bot detection
         await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-        // Navigate to the page
-        await page.goto(url, {
-            waitUntil: 'networkidle2',
-            timeout: 30000
-        });
+        // Navigate to the page with retry logic
+        let retries = 3;
+        while (retries > 0) {
+            try {
+                await page.goto(url, {
+                    waitUntil: 'networkidle2',
+                    timeout: 30000
+                });
+                break; // Success, exit retry loop
+            } catch (navError) {
+                retries--;
+                if (retries === 0) {
+                    throw navError; // Re-throw if all retries failed
+                }
+                console.warn(`Navigation failed, retrying... (${retries} attempts left)`);
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+            }
+        }
 
         // Wait for additional time if specified
         if (waitFor > 0) {
@@ -473,7 +733,7 @@ async function scrapeTopNews(url, options = {}) {
         // Scrape news articles
         const newsArticles = await page.evaluate((maxNews) => {
             const articles = [];
-            
+
             // Common news article selectors for various news websites
             const selectors = [
                 'article',
@@ -489,50 +749,50 @@ async function scrapeTopNews(url, options = {}) {
                 '.headline',
                 '.title'
             ];
-            
+
             // Try different selectors to find news articles
             for (const selector of selectors) {
                 const elements = document.querySelectorAll(selector);
-                
+
                 for (const element of elements) {
                     if (articles.length >= maxNews) break;
-                    
+
                     // Extract title
                     let title = '';
                     const titleElement = element.querySelector('h1, h2, h3, .headline, .title, [class*="title"], [class*="headline"]') || element;
                     if (titleElement) {
                         title = titleElement.textContent?.trim() || titleElement.innerText?.trim() || '';
                     }
-                    
+
                     // Extract link
                     let link = '';
                     const linkElement = element.querySelector('a') || (element.tagName === 'A' ? element : null);
                     if (linkElement) {
                         link = linkElement.href || '';
                     }
-                    
+
                     // Extract summary/description
                     let summary = '';
                     const summaryElement = element.querySelector('p, .summary, .excerpt, .description, [class*="summary"], [class*="excerpt"]');
                     if (summaryElement) {
                         summary = summaryElement.textContent?.trim() || summaryElement.innerText?.trim() || '';
                     }
-                    
+
                     // Extract image
                     let image = '';
                     const imageElement = element.querySelector('img');
                     if (imageElement) {
                         image = imageElement.src || imageElement.dataset.src || '';
                     }
-                    
+
                     // Only add if we have a meaningful title
                     if (title && title.length > 10 && !title.toLowerCase().includes('cookie') && !title.toLowerCase().includes('subscribe')) {
                         // Check if this article is already added (avoid duplicates)
-                        const isDuplicate = articles.some(article => 
-                            article.title === title || 
+                        const isDuplicate = articles.some(article =>
+                            article.title === title ||
                             (article.link && link && article.link === link)
                         );
-                        
+
                         if (!isDuplicate) {
                             articles.push({
                                 title: title.substring(0, 200), // Limit title length
@@ -544,23 +804,38 @@ async function scrapeTopNews(url, options = {}) {
                         }
                     }
                 }
-                
+
                 if (articles.length >= maxNews) break;
             }
-            
+
             return articles.slice(0, maxNews);
         }, maxNews);
 
         console.log(`Found ${newsArticles.length} news articles`);
-        
+
         return newsArticles;
 
     } catch (error) {
-        console.error('Error scraping news:', error);
+        console.error('Error scraping news:', error.message || error);
         return [];
     } finally {
         if (browser) {
-            await browser.close();
+            try {
+                // Close all pages first
+                const pages = await browser.pages();
+                await Promise.all(pages.map(page => page.close().catch(() => {})));
+
+                // Then close the browser
+                await browser.close();
+            } catch (closeError) {
+                console.warn('Warning: Error closing browser:', closeError.message);
+                // Force kill the browser process if normal close fails
+                try {
+                    await browser.process()?.kill('SIGKILL');
+                } catch (killError) {
+                    // Ignore kill errors
+                }
+            }
         }
     }
 }
@@ -572,35 +847,35 @@ async function scrapeTopNews(url, options = {}) {
 async function generateNewsAudio(options = {}) {
     try {
         console.log('Starting news scraping and audio generation...');
-        
+
         // Scrape news from all configured websites
         const newsData = await scrapeMultipleNews({
             saveToFile: false, // We'll handle file saving ourselves
             ...options
         });
-        
+
         console.log(`\nScraped ${newsData.totalWebsites} websites with ${newsData.allArticles.length} total articles`);
-        
-        // Generate audio-ready summary
-        const audioSummary = generateAudioSummary(newsData);
-        
+
+        // Generate audio-ready summary (translated to Chinese)
+        const audioSummary = await generateAudioSummary(newsData);
+
         // Create timestamp for file naming
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        
+
         // Save the complete news data
         const jsonPath = path.join(newsDir, `news_audio_${timestamp}.json`);
         fs.writeFileSync(jsonPath, JSON.stringify(newsData, null, 2));
         console.log(`News data saved: ${jsonPath}`);
-        
+
         // Save the audio summary text
         const summaryPath = path.join(newsDir, `news_summary_${timestamp}.txt`);
         fs.writeFileSync(summaryPath, audioSummary);
         console.log(`Audio summary saved: ${summaryPath}`);
-        
+
         // Convert to audio
          const audioPath = path.join(newsDir, `news_audio_${timestamp}.mp3`);
          const audioSuccess = await convertToAudio(audioSummary, audioPath);
-        
+
         if (audioSuccess) {
             console.log('\n✅ News audio generation completed successfully!');
             console.log(`📄 Summary: ${summaryPath}`);
@@ -609,7 +884,7 @@ async function generateNewsAudio(options = {}) {
             console.log('\n⚠️  Audio generation failed, but text summary is available.');
             console.log(`📄 Summary: ${summaryPath}`);
         }
-        
+
         return {
             success: true,
             newsData,
@@ -617,7 +892,7 @@ async function generateNewsAudio(options = {}) {
             audioPath: audioSuccess ? audioPath : null,
             audioSummary
         };
-        
+
     } catch (error) {
         console.error('Error in news audio generation:', error);
         throw error;
@@ -628,13 +903,13 @@ async function generateNewsAudio(options = {}) {
 if (require.main === module) {
     const args = process.argv.slice(2);
     const options = {};
-    
+
     // Parse command line arguments
     for (let i = 0; i < args.length; i++) {
         if (args[i].startsWith('--')) {
             const key = args[i].replace('--', '');
             const value = args[i + 1];
-            
+
             if (key === 'maxNews') {
                 options[key] = parseInt(value);
             } else if (key === 'help') {
@@ -657,7 +932,7 @@ if (require.main === module) {
             i++; // Skip the value
         }
     }
-    
+
     // Run the news audio generation
     generateNewsAudio(options)
         .then(result => {
@@ -680,3 +955,13 @@ module.exports = {
     scrapeMultipleNews,
     scrapeTopNews
 };
+
+// Also export iFlytek TTS functions if available
+try {
+    const { convertWithIFlytekTTS, IFlytekTTS } = require('./iflytek-tts.js');
+    module.exports.convertWithIFlytekTTS = convertWithIFlytekTTS;
+    module.exports.IFlytekTTS = IFlytekTTS;
+} catch (error) {
+    // iFlytek TTS module not available
+    console.log('iFlytek TTS module not loaded:', error.message);
+}
