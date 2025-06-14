@@ -168,12 +168,25 @@ function identifyBreakingNews(articles) {
  * @returns {Promise<boolean>} - Success status
  */
 async function convertToAudio(text, outputPath) {
-    // Try iFlytek TTS API first if credentials are available
-    if (process.env.IFLYTEK_APP_ID && process.env.IFLYTEK_API_KEY && process.env.IFLYTEK_API_SECRET) {
+    // Try iFlytek TTS API first if credentials are available (from config.json or environment variables)
+    const iflytekAppId = config.ots?.appid || process.env.IFLYTEK_APP_ID;
+    const iflytekApiKey = config.ots?.apiKey || process.env.IFLYTEK_API_KEY;
+    const iflytekApiSecret = config.ots?.apiSecret || process.env.IFLYTEK_API_SECRET;
+    
+    if (iflytekAppId && iflytekApiKey && iflytekApiSecret) {
         try {
             console.log('Using iFlytek TTS API for high-quality text-to-speech...');
             const { convertWithIFlytekTTS } = require('./iflytek-tts.js');
-            const success = await convertWithIFlytekTTS(text, outputPath);
+            
+            // Pass config values to iFlytek TTS
+            const iflytekConfig = {
+                host: config.tts?.host || 'api-dx.xf-yun.com',
+                appId: iflytekAppId,
+                apiKey: iflytekApiKey,
+                apiSecret: iflytekApiSecret
+            };
+            
+            const success = await convertWithIFlytekTTS(text, outputPath, { config: iflytekConfig });
             if (success) return true;
         } catch (error) {
             console.log('iFlytek TTS API failed, falling back to system TTS:', error.message);
@@ -575,8 +588,8 @@ async function scrapeWithAlternativeMethod(url, options = {}) {
         const titlePatterns = [
             /<h[1-3][^>]*>([^<]+)<\/h[1-3]>/gi,
             /<[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)/gi,
-            /<[^>]*class="[^"]*headline[^"]*"[^>]*>([^<]+)/gi,
-            /<title>([^<]+)<\/title>/gi
+            /<[^>]*class="[^"]*headline[^"]*"[^>]*>([^<]+)/gi
+            // Removed: /<title>([^<]+)<\/title>/gi - this captures page titles
         ];
 
         const foundTitles = new Set();
@@ -587,12 +600,19 @@ async function scrapeWithAlternativeMethod(url, options = {}) {
                 const title = match[1]?.trim().replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ');
 
                 if (title &&
-                    title.length > 15 &&
+                    title.length > 20 &&
                     title.length < 200 &&
                     !title.toLowerCase().includes('cookie') &&
                     !title.toLowerCase().includes('subscribe') &&
                     !title.toLowerCase().includes('menu') &&
                     !title.toLowerCase().includes('javascript') &&
+                    !title.toLowerCase().includes('dubai news') &&
+                    !title.toLowerCase().includes('uae news') &&
+                    !title.toLowerCase().includes('gulf news') &&
+                    !title.toLowerCase().includes('latest news') &&
+                    !title.toLowerCase().includes('arab news') &&
+                    !title.toLowerCase().includes('breaking news') &&
+                    !(title.includes(' - ') && title.split(' - ').length > 2) &&
                     !foundTitles.has(title.toLowerCase())) {
 
                     foundTitles.add(title.toLowerCase());
@@ -621,7 +641,21 @@ async function scrapeWithAlternativeMethod(url, options = {}) {
                 while ((match = pattern.exec(html)) !== null && articles.length < 3) {
                     const title = match[1]?.trim().replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ');
 
-                    if (title && title.length > 10 && !foundTitles.has(title.toLowerCase())) {
+                    if (title &&
+                        title.length > 20 &&
+                        title.length < 200 &&
+                        !title.toLowerCase().includes('cookie') &&
+                        !title.toLowerCase().includes('subscribe') &&
+                        !title.toLowerCase().includes('menu') &&
+                        !title.toLowerCase().includes('javascript') &&
+                        !title.toLowerCase().includes('dubai news') &&
+                        !title.toLowerCase().includes('uae news') &&
+                        !title.toLowerCase().includes('gulf news') &&
+                        !title.toLowerCase().includes('latest news') &&
+                        !title.toLowerCase().includes('arab news') &&
+                        !title.toLowerCase().includes('breaking news') &&
+                        !(title.includes(' - ') && title.split(' - ').length > 2) &&
+                        !foundTitles.has(title.toLowerCase())) {
                         foundTitles.add(title.toLowerCase());
                         articles.push({
                             title: title,

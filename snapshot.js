@@ -590,7 +590,7 @@ async function scrapeTopNews(url, options = {}) {
                 '[class*="article"]',
                 '[class*="story"]',
                 '[class*="news"]',
-                'h1, h2, h3',
+                // 'h1, h2, h3', // Removed - too broad, captures page titles
                 '.headline',
                 '.title'
             ];
@@ -630,8 +630,22 @@ async function scrapeTopNews(url, options = {}) {
                         image = imageElement.src || imageElement.dataset.src || '';
                     }
                     
-                    // Only add if we have a meaningful title
-                    if (title && title.length > 10 && !title.toLowerCase().includes('cookie') && !title.toLowerCase().includes('subscribe')) {
+                    // Check if this looks like a page title rather than article title
+                    const isPageTitle = title.toLowerCase().includes('dubai news') ||
+                                       title.toLowerCase().includes('uae news') ||
+                                       title.toLowerCase().includes('gulf news') ||
+                                       title.toLowerCase().includes('latest news') ||
+                                       title.toLowerCase().includes('arab news') ||
+                                       title.toLowerCase().includes('breaking news') ||
+                                       (title.includes(' - ') && title.split(' - ').length > 2);
+
+                    // Only add if we have a meaningful article title (not page title)
+                    if (title && 
+                        title.length > 20 && 
+                        title.length < 150 &&
+                        !title.toLowerCase().includes('cookie') && 
+                        !title.toLowerCase().includes('subscribe') &&
+                        !isPageTitle) {
                         // Check if this article is already added (avoid duplicates)
                         const isDuplicate = articles.some(article => 
                             article.title === title || 

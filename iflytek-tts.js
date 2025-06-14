@@ -166,7 +166,7 @@ class IFlytekTTS {
     /**
      * Query task status and get result
      */
-    async queryTask(taskId, maxRetries = 10) {
+    async queryTask(taskId, maxRetries = 30) {
         const queryPath = '/v1/private/dts_query';
         const authUrl = this.assembleAuthUrl(queryPath);
 
@@ -292,12 +292,15 @@ class IFlytekTTS {
  */
 async function convertWithIFlytekTTS(text, outputPath, options = {}) {
     try {
-        const tts = new IFlytekTTS({
+        // Use config from options if provided, otherwise fall back to environment variables
+        const config = options.config || {
             host: process.env.IFLYTEK_HOST,
             appId: process.env.IFLYTEK_APP_ID,
             apiKey: process.env.IFLYTEK_API_KEY,
             apiSecret: process.env.IFLYTEK_API_SECRET
-        });
+        };
+
+        const tts = new IFlytekTTS(config);
 
         // Split text into chunks if too long (iFlytek has character limits)
         const maxChunkLength = 2000; // Conservative limit for iFlytek
