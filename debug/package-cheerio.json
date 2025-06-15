@@ -1,0 +1,28 @@
+{
+  "name": "website-snapshot-cheerio-cli",
+  "version": "1.0.0",
+  "description": "A lightweight CLI tool to scrape news websites using Cheerio (no Puppeteer, no server)",
+  "main": "snapshot-cheerio.js",
+  "scripts": {
+    "start": "node snapshot-cheerio.js --config",
+    "scrape": "node snapshot-cheerio.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12"
+  },
+  "keywords": [
+    "cheerio",
+    "web-scraping",
+    "news-scraper",
+    "lightweight",
+    "cli",
+    "no-puppeteer",
+    "no-server"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "website-snapshot-cli",
+  "version": "1.0.0",
+  "description": "A CLI tool to scrape news websites using Puppeteer (no server)",
+  "main": "snapshot.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node snapshot.js",
+    "audio": "node news-to-audio.js",
+    "setup-tts": "node install-tts.js"
+  },
+  "dependencies": {
+    "axios": "^1.9.0",
+    "cheerio": "^1.0.0-rc.12",
+    "crypto-js": "^3.1.9-1",
+    "log4node": "^0.1.6",
+    "puppeteer": "^21.0.0",
+    "request": "^2.88.0",
+    "translatte": "^3.0.1"
+  },
+  "optionalDependencies": {
+    "google-tts-api": "^2.0.2",
+    "say": "^0.16.0"
+  },
+  "keywords": [
+    "puppeteer",
+    "web-scraping",
+    "news-scraper",
+    "cli",
+    "no-server"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

@@ -1,0 +1,40 @@
+# Crontab Examples for Website Snapshot Tool
+# Copy the desired line and add it to your crontab using: crontab -e
+
+# Format: minute hour day month weekday command
+# Replace /Users/lihaoran/Documents/projects/snapshot with your actual project path
+
+# Take a screenshot every hour
+0 * * * * /Users/lihaoran/Documents/projects/snapshot/run_snapshot.sh
+
+# Take a screenshot every 6 hours
+0 */6 * * * /Users/lihaoran/Documents/projects/snapshot/run_snapshot.sh
+
+# Take a screenshot daily at 9:00 AM
+0 9 * * * /Users/lihaoran/Documents/projects/snapshot/run_snapshot.sh
+
+# Take a screenshot twice daily (9 AM and 6 PM)
+0 9,18 * * * /Users/lihaoran/Documents/projects/snapshot/run_snapshot.sh
+
+# Take a screenshot every weekday at 10:30 AM
+30 10 * * 1-5 /Users/lihaoran/Documents/projects/snapshot/run_snapshot.sh
+
+# Take a screenshot every Monday at 8:00 AM
+0 8 * * 1 /Users/lihaoran/Documents/projects/snapshot/run_snapshot.sh
+
+# Take a screenshot every 30 minutes during business hours (9 AM - 5 PM, weekdays)
+*/30 9-17 * * 1-5 /Users/lihaoran/Documents/projects/snapshot/run_snapshot.sh
+
+# Take a screenshot at the start of every month
+0 0 1 * * /Users/lihaoran/Documents/projects/snapshot/run_snapshot.sh
+
+# Instructions:
+# 1. Choose one of the above lines
+# 2. Update the path to match your actual project location
+# 3. Open crontab editor: crontab -e
+# 4. Paste the line and save
+# 5. Verify with: crontab -l
+
+# To remove all cron jobs: crontab -r
+# To edit existing cron jobs: crontab -e
+# To list current cron jobs: crontab -l
