@@ -231,10 +231,43 @@ async def scrape_channel():
 
         if isinstance(entity, Channel):
             messages_data = []
+            
+            # Initialize filtering counters
+            total_messages = 0
+            filtered_forwarded = 0
+            filtered_ads = 0
+            filtered_empty = 0
+            all_hashtags = []
 
             # Iterate over messages
             async for message in client.iter_messages(entity, limit=${limit}):
-                if message.text:  # Only include messages with text
+                total_messages += 1
+                
+                # Filter out forwarded messages
+                if message.forward:
+                    filtered_forwarded += 1
+                    print(f"跳过转发消息: {message.id}", file=sys.stderr)
+                    continue
+                
+                # Filter out messages containing '#广告'
+                if message.text and '#广告' in message.text:
+                    filtered_ads += 1
+                    print(f"跳过广告消息: {message.id}", file=sys.stderr)
+                    continue
+                
+                # Filter out empty messages
+                if not message.text or not message.text.strip():
+                    filtered_empty += 1
+                    print(f"跳过空消息: {message.id}", file=sys.stderr)
+                    continue
+                
+                # Extract hashtags from message text
+                import re
+                hashtags = re.findall(r'#\\w+', message.text) if message.text else []
+                all_hashtags.extend(hashtags)
+                
+                # Only include valid messages with text
+                if message.text and len(message.text.strip()) > 0:
                     message_info = {
                         'id': message.id,
                         'date': message.date.isoformat() if message.date else None,
@@ -242,9 +275,33 @@ async def scrape_channel():
                         'views': message.views or 0,
                         'post_url': f"https://t.me/${channel}/{message.id}",
                         'channel': '${channel}',
-                        'scrapedAt': datetime.now().isoformat()
+                        'scrapedAt': datetime.now().isoformat(),
+                        'is_forwarded': bool(message.forward),
+                        'hashtags': hashtags
                     }
                     messages_data.append(message_info)
+                    print(f"处理消息: {message.id} - 标签: {hashtags if hashtags else 'None'}", file=sys.stderr)
+            
+            # Calculate statistics
+            valid_messages = len(messages_data)
+            filtering_rate = ((total_messages - valid_messages) / total_messages * 100) if total_messages > 0 else 0
+            unique_hashtags = list(set(all_hashtags))
+            
+            # Print filtering statistics
+            print(f"\\n=== 过滤统计 ===", file=sys.stderr)
+            print(f"总消息数: {total_messages}", file=sys.stderr)
+            print(f"转发消息: {filtered_forwarded}", file=sys.stderr)
+            print(f"广告消息: {filtered_ads}", file=sys.stderr)
+            print(f"空消息: {filtered_empty}", file=sys.stderr)
+            print(f"有效消息: {valid_messages}", file=sys.stderr)
+            print(f"过滤率: {filtering_rate:.1f}%", file=sys.stderr)
+            print(f"\\n=== 标签统计 ===", file=sys.stderr)
+            print(f"总标签数: {len(all_hashtags)}", file=sys.stderr)
+            print(f"唯一标签数: {len(unique_hashtags)}", file=sys.stderr)
+            if unique_hashtags:
+                print(f"标签列表: {', '.join(unique_hashtags[:10])}{'...' if len(unique_hashtags) > 10 else ''}", file=sys.stderr)
+            else:
+                print("标签列表: 无", file=sys.stderr)
 
             print(json.dumps(messages_data, indent=2))
         else:
@@ -280,11 +337,11 @@ if __name__ == '__main__':
         // Parse the JSON result
         const messages = JSON.parse(result);
 
-        console.log(`✅ Successfully scraped ${messages.length} messages from @${channel}`);
+        console.log(`✅ Successfully scraped ${messages.length} valid messages from @${channel} after filtering`);
 
         // Convert Telegram messages to our standard article format
         return messages
-            .filter(msg => msg.text && msg.text.length > 20) // Filter out short messages
+            .filter(msg => msg.text && msg.text.length > 20) // Additional filter for short messages
             .map(msg => ({
                 title: msg.text.length > 100 ? msg.text.substring(0, 100) + '...' : msg.text,
                 link: msg.post_url,
@@ -294,7 +351,9 @@ if __name__ == '__main__':
                 source: 'telegram',
                 channel: msg.channel,
                 views: msg.views,
-                messageId: msg.id
+                messageId: msg.id,
+                isForwarded: msg.is_forwarded || false,
+                hashtags: msg.hashtags || []
             }));
 
     } catch (error) {
